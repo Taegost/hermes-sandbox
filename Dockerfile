@@ -28,9 +28,6 @@ RUN mkdir -p /home/hermes/.ssh && \
 # Create sshd privilege separation directory
 RUN mkdir -p /var/run/sshd
 
-# Generate SSH host keys (can be overridden by mounting at runtime)
-RUN ssh-keygen -A
-
 # Copy SSH configuration
 COPY sshd_config /etc/ssh/sshd_config
 

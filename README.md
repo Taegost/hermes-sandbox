@@ -129,7 +129,8 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 
 - sshd runs as root (required for privilege separation and port binding); SSH sessions run as non-root user `hermes` (UID 10000)
 - No passwords stored or accepted — key-based authentication only
-- Compatible with `no-new-privileges` hardening. Note: `cap_drop ALL` may require `NET_BIND_SERVICE` capability if binding to ports below 1024
+- Root login is explicitly disabled (`PermitRootLogin no`)
+- `allowPrivilegeEscalation: false` sets `no_new_privs=1`, which may interfere with sshd privilege separation on some kernels. Test in your environment before deploying to production. If authentication fails, set `allowPrivilegeEscalation: true`
 - SSH authorized_keys mounted read-only at runtime (not baked into image)
 - No Playwright, Chromium, or docker-cli installed
 
