@@ -79,6 +79,15 @@ spec:
               subPath: authorized_keys
               readOnly: true
           securityContext:
+            capabilities:
+              drop: ["ALL"]
+              add:
+                - SETUID
+                - SETGID
+                - SYS_CHROOT
+                - CHOWN
+                - DAC_READ_SEARCH
+                - AUDIT_WRITE
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
       volumes:
