@@ -1,7 +1,7 @@
 ---
 title: "feat: Build Hermes Sandbox Docker image"
 type: feat
-status: active
+status: completed
 date: "2026-06-21"
 origin: docs/brainstorms/2026-06-21-docker-image-build-requirements.md
 ---
