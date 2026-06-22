@@ -141,6 +141,7 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 - `capabilities: drop: ["ALL"]` is incompatible — sshd needs `SETUID`, `SETGID`, and `SYS_CHROOT` for privilege separation. Use the minimal `securityContext` shown in the Deployment example
 - Clusters enforcing `RuntimeDefault` seccomp may block sshd's `chroot(2)` syscall even with `SYS_CHROOT` capability. If sshd fails to accept connections, set `seccompProfile.type: Unconfined` in the container's `securityContext`
 - SSH authorized_keys mounted read-only at runtime (not baked into image)
+- `StrictModes no` is required for Docker `-v` mount compatibility — Docker mounts retain the host file's UID, which fails sshd's ownership checks with `StrictModes yes`. K8s Secret `subPath` mounts (root-owned, mode 0600) would satisfy `StrictModes yes`, but Docker compatibility is a project requirement
 - No Playwright, Chromium, or docker-cli installed
 
 ## Base Image

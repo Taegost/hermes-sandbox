@@ -126,13 +126,15 @@ Investigation confirmed the `hermes` user existed correctly (verified via `getpw
 
 **What went wrong:** When the `authorized_keys` file is mounted from a Kubernetes Secret or Docker volume, its UID ownership reflects the host or the volume provisioner, not the container's `hermes` user (UID 10000). With `StrictModes yes` (the default), sshd checks that `authorized_keys` is owned by the authenticated user and rejects it otherwise:
 
-```
+```text
 Authentication refused: bad ownership or modes for file /home/hermes/.ssh/authorized_keys
 ```
 
 **What is correct:** Set `StrictModes no` when authorized_keys files are mounted from external sources. This relaxes sshd's file ownership checks while still requiring the key itself to be valid.
 
-**When StrictModes yes is appropriate:** When the `authorized_keys` file is baked into the image or managed entirely within the container where UID ownership can be guaranteed.
+**Why StrictModes yes is not an option:** Docker `-v` mounts retain the host file's UID (e.g., uid 1000 on the host), which fails sshd's ownership checks. K8s Secret `subPath` mounts create files owned by root (uid 0) with mode 0600, which would satisfy `StrictModes yes`. However, since this image must support both Docker and Kubernetes deployments, `StrictModes no` is required. Docker compatibility is a project requirement.
+
+**When StrictModes yes is appropriate:** When the `authorized_keys` file is baked into the image, managed entirely within the container where UID ownership can be guaranteed, or when only K8s Secret `subPath` mounts are used.
 
 ### 6. PermitRootLogin no is required even with key-only auth
 
