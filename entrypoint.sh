@@ -7,8 +7,8 @@ set -e
 for key_type in rsa ed25519; do
     key_file="/etc/ssh/ssh_host_${key_type}_key"
     if [ ! -f "$key_file" ]; then
-        if ! ssh-keygen -t "$key_type" -f "$key_file" -N "" 2>/dev/null; then
-            echo "Error: Cannot generate $key_file — /etc/ssh may be read-only. Mount a writable volume or pre-populate host keys via a Kubernetes Secret." >&2
+        if ! ssh-keygen -t "$key_type" -f "$key_file" -N ""; then
+            echo "Error: Cannot generate $key_file. Check that /etc/ssh is writable, disk is not full, and the key type is supported. To use a pre-existing key, mount it via a Kubernetes Secret." >&2
             exit 1
         fi
     elif [ ! -w "$key_file" ]; then

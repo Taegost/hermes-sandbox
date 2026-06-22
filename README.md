@@ -86,7 +86,6 @@ spec:
                 - SETGID
                 - SYS_CHROOT
                 - CHOWN
-                - DAC_READ_SEARCH
                 - AUDIT_WRITE
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
@@ -140,6 +139,7 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 - SSH access restricted to `hermes` user only (`AllowUsers hermes`)
 - `allowPrivilegeEscalation: true` is required — sshd calls `setuid()` to drop from root to the authenticated user; `no_new_privs` blocks this and every SSH session fails
 - `capabilities: drop: ["ALL"]` is incompatible — sshd needs `SETUID`, `SETGID`, and `SYS_CHROOT` for privilege separation. Use the minimal `securityContext` shown in the Deployment example
+- Clusters enforcing `RuntimeDefault` seccomp may block sshd's `chroot(2)` syscall even with `SYS_CHROOT` capability. If sshd fails to accept connections, set `seccompProfile.type: Unconfined` in the container's `securityContext`
 - SSH authorized_keys mounted read-only at runtime (not baked into image)
 - No Playwright, Chromium, or docker-cli installed
 

@@ -1,4 +1,4 @@
-FROM nikolaik/python-nodejs:python3.13-nodejs22
+FROM nikolaik/python-nodejs:python3.13-nodejs22@sha256:9e609c0e4a4b1b63cc62870418fb6f14a1f08d56ce56f6ba129bdedc1d79e5af
 
 # Install system packages required by Hermes Agent's shell-based workflow
 RUN apt-get update && \
@@ -15,7 +15,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Remove base image user 'pn' to avoid confusion
-RUN if getent passwd pn > /dev/null 2>&1; then userdel -r pn || true; fi
+RUN if id pn > /dev/null 2>&1; then userdel -r pn || true; fi
 
 # Create hermes user with specific UID:GID
 RUN groupadd -g 10000 hermes && \
