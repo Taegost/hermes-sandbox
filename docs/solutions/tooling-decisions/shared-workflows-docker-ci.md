@@ -32,7 +32,7 @@ When a shared reusable workflow exists for Docker image CI/CD, use it as a calle
 
 1. Defines triggers (version tags, PRs, schedule, manual dispatch)
 2. Calls the reusable workflow with `uses:` pointing to the shared repo at a pinned version tag
-3. Passes required inputs and uses `secrets: inherit` for secret forwarding
+3. Passes required inputs and explicitly maps only the required secrets
 
 The caller workflow should be ~17 lines — triggers plus one job calling the reusable workflow.
 
@@ -73,7 +73,10 @@ jobs:
     uses: Taegost/shared-workflows/.github/workflows/docker-build-push.yml@v1.0.0
     with:
       event_name: ${{ github.event_name }}
-    secrets: inherit
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_IMAGENAME: ${{ secrets.DOCKERHUB_IMAGENAME }}
 ```
 
 ### Trigger behavior
