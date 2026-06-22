@@ -17,10 +17,11 @@ Mount your SSH authorized_keys file at runtime:
 ```bash
 docker run -d \
   -p 2222:2222 \
-  --user 10000:10000 \
   -v /path/to/authorized_keys:/home/hermes/.ssh/authorized_keys:ro \
   hermes-sandbox
 ```
+
+> **Note:** The container starts as root (required for sshd privilege separation) and drops to user `hermes` (UID 10000:10000) after SSH authentication. Ensure the host-side `authorized_keys` file is readable by the container — owned by UID 10000 or world-readable (`chmod 644`).
 
 ### Connect
 
@@ -80,8 +81,6 @@ spec:
               subPath: authorized_keys
               readOnly: true
           securityContext:
-            runAsUser: 10000
-            runAsGroup: 10000
             capabilities:
               drop: ["ALL"]
               add:
