@@ -1,0 +1,23 @@
+# Hermes Sandbox sshd configuration
+# Passwordless SSH for Hermes Agent with ControlMaster reuse
+
+Port 2222
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM yes
+PermitRootLogin no
+AllowUsers hermes
+
+# Key-based authentication only — %h scopes to each user's home directory
+AuthorizedKeysFile %h/.ssh/authorized_keys
+StrictModes no
+
+# Keepalive to prevent idle disconnects
+ClientAliveInterval 60
+ClientAliveCountMax 5
+
+# Host keys — generated at runtime by entrypoint.sh (not baked into image)
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+LogLevel INFO

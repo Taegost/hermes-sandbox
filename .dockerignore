@@ -1,0 +1,6 @@
+.git/
+docs/
+*.md
+LICENSE
+.github/
+.claude/
