@@ -2,6 +2,7 @@
 title: "Container sshd configuration lessons for non-root SSH backends"
 date: 2026-06-21
 last_updated: 2026-06-22
+last_updated_note: "Added lessons 9-14 from PR review rounds 4-6: AllowUsers, minimal capabilities, digest pinning, error preservation, id vs getent, entrypoint key generation logic"
 category: docs/solutions/tooling-decisions
 module: hermes-agent-ssh-backend
 problem_type: tooling_decision
@@ -23,6 +24,9 @@ tags:
   - permitrootlogin
   - host-keys
   - authorizedkeysfile
+  - capabilities
+  - supply-chain
+  - allowusers
 ---
 
 # Container sshd configuration lessons for non-root SSH backends
@@ -174,6 +178,94 @@ RUN apt-get install -y openssh-server && \
 
 Apply the same pattern for any package that writes secrets during installation (e.g., `rm -f /etc/ssl/private/*` after TLS packages).
 
+### 9. AllowUsers restricts SSH to intended users only
+
+**What went wrong:** Without `AllowUsers hermes`, sshd authenticates any unix account that presents a valid public key. Base images include standard system accounts (e.g., `www-data`, `daemon`) with valid shells. `PermitRootLogin no` blocks root but not these other accounts.
+
+**What is correct:** Add `AllowUsers hermes` to `sshd_config` after `PermitRootLogin no`. This makes the allowed-user list explicit and independent of which accounts happen to exist in the image.
+
+### 10. Minimal capabilities for sshd containers
+
+**What went wrong:** The Kubernetes Deployment example initially used `capabilities: drop: ["ALL"]` without adding back the capabilities sshd needs. Later, the capabilities block was removed entirely, leaving the container with full default Linux capabilities.
+
+**What is correct:** Use a minimal drop-all + add-back pattern. sshd requires `SETUID`, `SETGID`, and `SYS_CHROOT` for privilege separation. PAM requires `CHOWN` and `AUDIT_WRITE`. `DAC_READ_SEARCH` is unnecessary for key-only auth — sshd reads `authorized_keys` after dropping to the authenticated user's UID.
+
+```yaml
+securityContext:
+  capabilities:
+    drop: ["ALL"]
+    add:
+      - SETUID
+      - SETGID
+      - SYS_CHROOT
+      - CHOWN
+      - AUDIT_WRITE
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: true
+```
+
+**Why allowPrivilegeEscalation: true is required:** sshd calls `setuid()` to drop from root to the authenticated user. `no_new_privs` blocks this call, and every SSH session fails.
+
+### 11. Pin base images to digests for supply chain security
+
+**What went wrong:** `FROM nikolaik/python-nodejs:python3.13-nodejs22` references a mutable tag. If the upstream image is updated or compromised, the next `docker build` silently pulls the new image.
+
+**What is correct:** Pin the base image to its current digest:
+
+```dockerfile
+FROM nikolaik/python-nodejs:python3.13-nodejs22@sha256:<digest>
+```
+
+Keep the tag for human readability alongside the digest. Get the current digest with:
+
+```bash
+docker pull nikolaik/python-nodejs:python3.13-nodejs22
+docker inspect nikolaik/python-nodejs:python3.13-nodejs22 --format='{{index .RepoDigests 0}}'
+```
+
+### 12. Preserve error output in entrypoint scripts
+
+**What went wrong:** `ssh-keygen ... 2>/dev/null` discards all stderr before printing a hardcoded error message. If `ssh-keygen` fails for any reason other than read-only filesystem (disk quota, corrupted binary, unsupported key type), the actual error is gone and the operator diagnoses the wrong problem.
+
+**What is correct:** Let ssh-keygen's error output appear on stderr naturally, then append context-level guidance:
+
+```bash
+if ! ssh-keygen -t "$key_type" -f "$key_file" -N ""; then
+    echo "Error: Cannot generate $key_file. Check that /etc/ssh is writable, disk is not full, and the key type is supported." >&2
+    exit 1
+fi
+```
+
+### 13. Use `id` instead of `getent` for user existence checks in Dockerfiles
+
+**What went wrong:** `getent passwd pn` depends on NSS (Name Service Switch). In CI environments with transient NSS issues or cross-platform `docker buildx` contexts, `getent` can return non-zero even when the user exists in `/etc/passwd`.
+
+**What is correct:** Use `id pn` instead — it's a POSIX utility that reads `/etc/passwd` directly without NSS dependency:
+
+```dockerfile
+RUN if id pn > /dev/null 2>&1; then userdel -r pn || true; fi
+```
+
+### 14. Entrypoint key generation: handle existing vs missing keys differently
+
+**What went wrong:** The entrypoint script used `exit 1` when a host key file existed but was not writable. K8s Secret mounts are read-only by default, so mounting pre-populated host keys triggered the error — the exact scenario the error message recommended.
+
+**What is correct:** Treat existing keys (read-only or not) as valid — sshd will load them and fail with a clear error if they're corrupt. Only error when keys are missing and cannot be generated (read-only filesystem):
+
+```bash
+for key_type in rsa ed25519; do
+    key_file="/etc/ssh/ssh_host_${key_type}_key"
+    if [ ! -f "$key_file" ]; then
+        if ! ssh-keygen -t "$key_type" -f "$key_file" -N ""; then
+            echo "Error: Cannot generate $key_file. Check that /etc/ssh is writable." >&2
+            exit 1
+        fi
+    elif [ ! -w "$key_file" ]; then
+        echo "Info: $key_file exists but is not writable — using existing key." >&2
+    fi
+done
+```
+
 ## Why This Matters
 
 1. **sshd is not a generic TCP service** — it has deep integration with the OS user model, PAM, and privilege separation. Treating it like a stateless HTTP server ignores fundamental architectural constraints.
@@ -188,6 +280,12 @@ Apply the same pattern for any package that writes secrets during installation (
 
 6. **OpenSSH defaults are not safe defaults** — `PermitRootLogin prohibit-password` allows key-based root login. `AuthorizedKeysFile` without `%h` extends auth to all users. Always set these explicitly.
 
+7. **Docker and Kubernetes have different mount semantics** — Docker `-v` mounts retain host UID ownership; K8s Secret `subPath` mounts create root-owned files. Configuration that works in one may fail in the other. When supporting both, choose the more permissive option.
+
+8. **Capabilities are not all-or-nothing** — `drop: ["ALL"]` without adding back needed caps breaks sshd. Removing caps entirely grants unnecessary privileges. Use the minimal set: `SETUID`, `SETGID`, `SYS_CHROOT`, `CHOWN`, `AUDIT_WRITE`.
+
+9. **Supply chain security requires digest pinning** — Mutable image tags can be overwritten. Pin base images to digests and keep tags for readability.
+
 ## When to Apply
 
 - Building any Docker image that runs `sshd` as the primary service
@@ -197,6 +295,8 @@ Apply the same pattern for any package that writes secrets during installation (
 - Configuring ControlMaster for AI agent SSH backends (the client-side setting goes in the agent's SSH config, not the server)
 - Installing packages that generate secrets during postinst (openssh-server, openssl, etc.)
 - Configuring SSH authentication in multi-user containers
+- Writing Kubernetes Deployment YAML for sshd containers (capabilities, seccomp, privilege escalation)
+- Pinning base images in Dockerfiles for supply chain security
 
 ## Examples
 
@@ -208,6 +308,7 @@ PasswordAuthentication no
 ChallengeResponseAuthentication no
 UsePAM yes
 PermitRootLogin no
+AllowUsers hermes
 
 # Key-based authentication only — %h scopes to each user's home directory
 AuthorizedKeysFile %h/.ssh/authorized_keys
@@ -226,10 +327,15 @@ LogLevel INFO
 ### Corrected Dockerfile (relevant sections)
 
 ```dockerfile
+FROM nikolaik/python-nodejs:python3.13-nodejs22@sha256:<digest>
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends openssh-server && \
     rm -f /etc/ssh/ssh_host_* && \
     rm -rf /var/lib/apt/lists/*
+
+# Remove base image user
+RUN if id pn > /dev/null 2>&1; then userdel -r pn || true; fi
 
 # ... (user setup, sshd privilege separation directory) ...
 
@@ -251,23 +357,27 @@ ENTRYPOINT ["/entrypoint.sh"]
 set -e
 
 # Generate only the host key types referenced in sshd_config (RSA + Ed25519)
-# Skip if keys already exist and are not writable (e.g., read-only volume mount)
+# If keys already exist (e.g., mounted from a Kubernetes Secret), use them as-is.
+# sshd will fail with a clear error if a key is corrupt or unreadable.
 for key_type in rsa ed25519; do
     key_file="/etc/ssh/ssh_host_${key_type}_key"
     if [ ! -f "$key_file" ]; then
-        ssh-keygen -t "$key_type" -f "$key_file" -N ""
+        if ! ssh-keygen -t "$key_type" -f "$key_file" -N ""; then
+            echo "Error: Cannot generate $key_file. Check that /etc/ssh is writable, disk is not full, and the key type is supported." >&2
+            exit 1
+        fi
     elif [ ! -w "$key_file" ]; then
-        echo "Warning: $key_file exists but is not writable, skipping generation" >&2
+        echo "Info: $key_file exists but is not writable — using existing key (e.g., mounted from Kubernetes Secret)." >&2
     fi
 done
 
 # Start sshd in the foreground as PID 1
 # exec ensures sshd receives signals directly for proper container shutdown
-exec /usr/sbin/sshd -D
+# -e redirects sshd logs to stderr (visible in docker logs)
+exec /usr/sbin/sshd -D -e
 ```
 
 ## Related
 
 - `docs/solutions/tooling-decisions/hermes-sandbox-base-image-version.md` — base image version alignment decision
-- `docs/plans/2026-06-21-001-feat-hermes-sandbox-docker-image-plan.md` — the implementation plan that contained the original (incorrect) specifications; superseded by actual implementation
 - `docs/brainstorms/2026-06-21-docker-image-build-requirements.md` — requirements document with R6-R11 covering SSH configuration

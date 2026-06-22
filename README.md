@@ -21,6 +21,9 @@ docker run -d \
   hermes-sandbox
 ```
 
+> **Note:** The container starts as root (required for sshd privilege separation) and drops to user `hermes` (UID 10000:10000) after SSH authentication. Ensure the host-side `authorized_keys` file is readable by the container — owned by UID 10000 or world-readable (`chmod 644`).
+
+
 ### Connect
 
 ```bash
@@ -133,12 +136,12 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 
 ## Security Notes
 
-- sshd runs as root (required for privilege separation and port binding); SSH sessions run as non-root user `hermes` (UID 10000)
+- sshd runs as root (required for privilege separation and session handoff to the `hermes` user); SSH sessions run as non-root user `hermes` (UID 10000)
 - No passwords stored or accepted — key-based authentication only
 - Root login is explicitly disabled (`PermitRootLogin no`)
 - SSH access restricted to `hermes` user only (`AllowUsers hermes`)
 - `allowPrivilegeEscalation: true` is required — sshd calls `setuid()` to drop from root to the authenticated user; `no_new_privs` blocks this and every SSH session fails
-- `capabilities: drop: ["ALL"]` is incompatible — sshd needs `SETUID`, `SETGID`, and `SYS_CHROOT` for privilege separation. Use the minimal `securityContext` shown in the Deployment example
+- `capabilities: drop: ["ALL"]` without re-adding required capabilities is incompatible — sshd needs `SETUID`, `SETGID`, and `SYS_CHROOT` for privilege separation. The Deployment example shows the correct minimal `securityContext` with `drop: ["ALL"]` plus explicit re-adds
 - Clusters enforcing `RuntimeDefault` seccomp may block sshd's `chroot(2)` syscall even with `SYS_CHROOT` capability. If sshd fails to accept connections, set `seccompProfile.type: Unconfined` in the container's `securityContext`
 - SSH authorized_keys mounted read-only at runtime (not baked into image)
 - `StrictModes no` is required for Docker `-v` mount compatibility — Docker mounts retain the host file's UID, which fails sshd's ownership checks with `StrictModes yes`. K8s Secret `subPath` mounts (root-owned, mode 0600) would satisfy `StrictModes yes`, but Docker compatibility is a project requirement

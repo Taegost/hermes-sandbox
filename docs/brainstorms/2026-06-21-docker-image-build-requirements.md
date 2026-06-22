@@ -15,7 +15,7 @@ Hermes Agent needs a minimal, secure SSH backend sandbox with Python and Node.js
 
 ## Key Decisions
 
-**Non-standard port 2222 over NET_BIND_SERVICE capability.** Allows sshd to bind as non-root without adding capabilities, which keeps the container compatible with `cap_drop ALL` and `no-new-privileges` hardening patterns. Kubernetes Service maps external port 22 to container port 2222.
+**Non-standard port 2222.** Avoids conflicts with host sshd on port 22. Kubernetes Service maps external port 22 to container port 2222. sshd runs as root for privilege separation (not for port binding — port 2222 is non-privileged).
 
 **Runtime key mount over build-time bake.** SSH authorized_keys are mounted as a volume at runtime (e.g., via Kubernetes Secret), not baked into the image. This allows key rotation without rebuilding the image and keeps keys out of image layers.
 
@@ -54,4 +54,4 @@ Hermes Agent needs a minimal, secure SSH backend sandbox with Python and Node.js
 - docker-cli — excluded; Hermes Agent does not run Docker commands inside the sandbox.
 - Network policies — Kubernetes-side concern, not part of the Docker image.
 - Monitoring and logging — not in scope for v1.
-- Multi-architecture builds — not in scope for v1.
+- Multi-architecture builds — optional; provided by the shared workflow at no extra configuration cost.
