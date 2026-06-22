@@ -115,8 +115,8 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 - **Port:** 2222 (non-standard to allow binding as non-root)
 - **Authentication:** Key-based only, no passwords
 - **Authorized keys:** Mounted at `/home/hermes/.ssh/authorized_keys`
-- **ControlMaster:** Enabled with 5-minute keepalive for connection reuse
-- **Host keys:** Generated at container startup (ephemeral)
+- **ControlMaster:** Client-side feature — configure in your `~/.ssh/config` (not in sshd_config). The server supports multiplexed connections transparently.
+- **Host keys:** Generated at build time. Mount custom host keys at `/etc/ssh/` for consistency across restarts.
 
 ### User
 
@@ -127,9 +127,9 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 
 ## Security Notes
 
-- Runs as non-root user `hermes` (UID 10000)
-- No passwords stored or accepted
-- Compatible with `cap_drop ALL` and `no-new-privileges` hardening
+- sshd runs as root (required for privilege separation and port binding); SSH sessions run as non-root user `hermes` (UID 10000)
+- No passwords stored or accepted — key-based authentication only
+- Compatible with `no-new-privileges` hardening. Note: `cap_drop ALL` may require `NET_BIND_SERVICE` capability if binding to ports below 1024
 - SSH authorized_keys mounted read-only at runtime (not baked into image)
 - No Playwright, Chromium, or docker-cli installed
 

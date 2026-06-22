@@ -33,7 +33,7 @@ _Why it serves the approach:_ This is the research-and-validate track — each p
 
 ### SSH & Security Configuration
 
-Configuring passwordless SSH, running as non-root, accepting only incoming SSH on port 22, allowing all outgoing traffic, and ensuring secure defaults for Kubernetes deployment.
+Configuring passwordless SSH, accepting only incoming SSH on port 2222 (mapped from external port 22 via Kubernetes Service), allowing all outgoing traffic, and ensuring secure defaults for Kubernetes deployment.
 
 _Why it serves the approach:_ Security is non-negotiable for a container that accepts SSH connections — every configuration choice must be validated.
 
