@@ -6,6 +6,7 @@ PasswordAuthentication no
 ChallengeResponseAuthentication no
 UsePAM yes
 PermitRootLogin no
+AllowUsers hermes
 
 # Key-based authentication only — %h scopes to each user's home directory
 AuthorizedKeysFile %h/.ssh/authorized_keys

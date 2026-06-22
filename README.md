@@ -79,10 +79,8 @@ spec:
               subPath: authorized_keys
               readOnly: true
           securityContext:
-            capabilities:
-              drop: ["ALL"]
             readOnlyRootFilesystem: false
-            allowPrivilegeEscalation: false
+            allowPrivilegeEscalation: true
       volumes:
         - name: ssh-keys
           secret:
@@ -130,7 +128,9 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 - sshd runs as root (required for privilege separation and port binding); SSH sessions run as non-root user `hermes` (UID 10000)
 - No passwords stored or accepted — key-based authentication only
 - Root login is explicitly disabled (`PermitRootLogin no`)
-- `allowPrivilegeEscalation: false` sets `no_new_privs=1`, which may interfere with sshd privilege separation on some kernels. Test in your environment before deploying to production. If authentication fails, set `allowPrivilegeEscalation: true`
+- SSH access restricted to `hermes` user only (`AllowUsers hermes`)
+- `allowPrivilegeEscalation: true` is required — sshd calls `setuid()` to drop from root to the authenticated user; `no_new_privs` blocks this and every SSH session fails
+- `capabilities: drop: ["ALL"]` is incompatible — sshd needs `SETUID`, `SETGID`, and `SYS_CHROOT` for privilege separation. Use the minimal `securityContext` shown in the Deployment example
 - SSH authorized_keys mounted read-only at runtime (not baked into image)
 - No Playwright, Chromium, or docker-cli installed
 

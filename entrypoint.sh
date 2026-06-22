@@ -8,10 +8,11 @@ for key_type in rsa ed25519; do
     if [ ! -f "$key_file" ]; then
         ssh-keygen -t "$key_type" -f "$key_file" -N ""
     elif [ ! -w "$key_file" ]; then
-        echo "Warning: $key_file exists but is not writable, skipping generation" >&2
+        echo "Error: $key_file exists but is not writable — cannot generate host key. Mount a writable volume at /etc/ssh or pre-populate host keys via a Kubernetes Secret." >&2
+        exit 1
     fi
 done
 
 # Start sshd in the foreground as PID 1
 # exec ensures sshd receives signals directly for proper container shutdown
-exec /usr/sbin/sshd -D
+exec /usr/sbin/sshd -D -e

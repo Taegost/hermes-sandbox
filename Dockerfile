@@ -15,7 +15,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Remove base image user 'pn' to avoid confusion
-RUN userdel -r pn 2>/dev/null || true
+RUN if getent passwd pn > /dev/null 2>&1; then userdel -r pn; fi
 
 # Create hermes user with specific UID:GID
 RUN groupadd -g 10000 hermes && \
