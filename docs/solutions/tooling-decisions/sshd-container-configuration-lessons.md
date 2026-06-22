@@ -1,6 +1,7 @@
 ---
 title: "Container sshd configuration lessons for non-root SSH backends"
 date: 2026-06-21
+last_updated: 2026-06-22
 category: docs/solutions/tooling-decisions
 module: hermes-agent-ssh-backend
 problem_type: tooling_decision
@@ -19,13 +20,18 @@ tags:
   - ssh-config
   - usepam
   - strictmodes
+  - permitrootlogin
+  - host-keys
+  - authorizedkeysfile
 ---
 
 # Container sshd configuration lessons for non-root SSH backends
 
 ## Context
 
-When building a Docker image that runs `sshd` as a service for an AI agent sandbox, several assumptions from standard Docker practices broke down. The base image is `nikolaik/python-nodejs:python3.13-nodejs22` (Debian Trixie), and the container must accept SSH connections on port 2222 with key-only authentication. The initial implementation plan contained five incorrect assumptions about how OpenSSH's sshd operates in a containerized environment. Each produced a distinct failure mode during build or runtime testing.
+When building a Docker image that runs `sshd` as a service for an AI agent sandbox, several assumptions from standard Docker practices broke down. The base image is `nikolaik/python-nodejs:python3.13-nodejs22` (Debian Trixie), and the container must accept SSH connections on port 2222 with key-only authentication. The initial implementation plan contained incorrect assumptions about how OpenSSH's sshd operates in a containerized environment. Each produced a distinct failure mode during build or runtime testing.
+
+A subsequent security review identified additional hardening gaps: baked-in host keys, missing `PermitRootLogin no`, an absolute `AuthorizedKeysFile` path that extended the auth surface to all system users, and overly broad key generation. These findings are documented in the security hardening section below.
 
 ## Guidance
 
@@ -70,13 +76,35 @@ sshd needs root privileges for two things:
 
 **What is correct:** sshd runs as root but drops privileges to the authenticated user's UID after authentication. Security is enforced through `sshd_config` (key-only auth, no passwords), not through running the sshd process itself as non-root.
 
-### 3. Host keys should be generated at build time
+### 3. Host keys must be generated at runtime, not baked into the image
 
 **What went wrong:** The original plan specified runtime host key generation in `entrypoint.sh`. When the container ran as `USER hermes`, `ssh-keygen -A` also failed because it requires root to write to `/etc/ssh/`.
 
-Even after fixing the user issue, generating host keys at every container start is unnecessary overhead and creates different host keys on each restart (breaking `known_hosts` on connecting clients).
+The initial fix moved key generation to `docker build` (`RUN ssh-keygen -A`), which solved the functional problem but created a security vulnerability: private host keys become permanent in the image layer. Anyone with registry access or `docker save` can extract them, enabling MITM attacks against all containers from that image.
 
-**What is correct:** `ssh-keygen -A` runs during `docker build` when the build context has root privileges. The keys are baked into the image layer. Users who need key consistency across restarts can mount explicit host keys via Kubernetes config maps.
+Additionally, the `openssh-server` package postinst script generates host keys during `apt-get install`, so even removing `RUN ssh-keygen -A` from the Dockerfile was insufficient — the package installer already created keys.
+
+**What is correct:** Generate host keys at runtime in `entrypoint.sh`, but only the specific types referenced in `sshd_config` (RSA and Ed25519). Remove keys created by the package postinst script during the build. Use existence and writability checks to handle read-only volume mounts gracefully:
+
+```dockerfile
+RUN apt-get install -y openssh-server && \
+    rm -f /etc/ssh/ssh_host_* && \
+    rm -rf /var/lib/apt/lists/*
+```
+
+```bash
+# In entrypoint.sh — generate only required key types
+for key_type in rsa ed25519; do
+    key_file="/etc/ssh/ssh_host_${key_type}_key"
+    if [ ! -f "$key_file" ]; then
+        ssh-keygen -t "$key_type" -f "$key_file" -N ""
+    elif [ ! -w "$key_file" ]; then
+        echo "Warning: $key_file exists but is not writable, skipping generation" >&2
+    fi
+done
+```
+
+Never use `ssh-keygen -A` in production containers — it generates all supported types including deprecated DSA and unnecessary ECDSA. Users who need key consistency across restarts can mount explicit host keys at `/etc/ssh/`.
 
 ### 4. UsePAM yes is required for user validation on Debian Trixie
 
@@ -106,6 +134,38 @@ Authentication refused: bad ownership or modes for file /home/hermes/.ssh/author
 
 **When StrictModes yes is appropriate:** When the `authorized_keys` file is baked into the image or managed entirely within the container where UID ownership can be guaranteed.
 
+### 6. PermitRootLogin no is required even with key-only auth
+
+**What went wrong:** The original `sshd_config` did not set `PermitRootLogin`. OpenSSH defaults to `prohibit-password`, which still allows key-based root login. Since the `AuthorizedKeysFile` was an absolute path (`/home/hermes/.ssh/authorized_keys`), any key in the mounted file could authenticate as root.
+
+**What is correct:** Always set `PermitRootLogin no` explicitly. The default `prohibit-password` is a common misconfiguration in containerized SSH setups where operators assume key-only auth is sufficient.
+
+### 7. AuthorizedKeysFile must use %h for per-user scoping
+
+**What went wrong:** The original config used an absolute path:
+```
+AuthorizedKeysFile /home/hermes/.ssh/authorized_keys
+```
+This means all system users (including root) check the same key file. Any valid user account with a matching key can authenticate, expanding the auth surface beyond the intended `hermes` user.
+
+**What is correct:** Use the `%h` token to scope to each user's home directory:
+```
+AuthorizedKeysFile %h/.ssh/authorized_keys
+```
+This ensures only keys in a user's own `.ssh` directory are checked, preventing cross-user authentication.
+
+### 8. Package postinst scripts generate secrets during install
+
+**What went wrong:** Removing `RUN ssh-keygen -A` from the Dockerfile was necessary but insufficient. The `openssh-server` package's postinst script runs `ssh-keygen -A` during `apt-get install`, so host keys were still baked into the image.
+
+**What is correct:** Always clean up secrets generated by package installers in the same `RUN` layer:
+```dockerfile
+RUN apt-get install -y openssh-server && \
+    rm -f /etc/ssh/ssh_host_* && \
+    rm -rf /var/lib/apt/lists/*
+```
+Apply the same pattern for any package that writes secrets during installation (e.g., `rm -f /etc/ssl/private/*` after TLS packages).
+
 ## Why This Matters
 
 1. **sshd is not a generic TCP service** — it has deep integration with the OS user model, PAM, and privilege separation. Treating it like a stateless HTTP server ignores fundamental architectural constraints.
@@ -116,6 +176,10 @@ Authentication refused: bad ownership or modes for file /home/hermes/.ssh/author
 
 4. **PAM is a hidden dependency on Debian** — Disabling PAM breaks sshd's ability to look up local users even when they exist in `/etc/passwd`.
 
+5. **Baked-in secrets are extractable from image layers** — Private keys, certificates, and tokens embedded in image layers can be extracted via `docker save` or registry access. Generate secrets at runtime, clean up after package installers.
+
+6. **OpenSSH defaults are not safe defaults** — `PermitRootLogin prohibit-password` allows key-based root login. `AuthorizedKeysFile` without `%h` extends auth to all users. Always set these explicitly.
+
 ## When to Apply
 
 - Building any Docker image that runs `sshd` as the primary service
@@ -123,6 +187,8 @@ Authentication refused: bad ownership or modes for file /home/hermes/.ssh/author
 - Mounting SSH keys or authorized_keys from Kubernetes Secrets or Docker volumes
 - Deploying sshd containers with `cap_drop ALL` or `no-new-privileges`
 - Configuring ControlMaster for AI agent SSH backends (the client-side setting goes in the agent's SSH config, not the server)
+- Installing packages that generate secrets during postinst (openssh-server, openssl, etc.)
+- Configuring SSH authentication in multi-user containers
 
 ## Examples
 
@@ -133,23 +199,35 @@ Port 2222
 PasswordAuthentication no
 ChallengeResponseAuthentication no
 UsePAM yes
-AuthorizedKeysFile /home/hermes/.ssh/authorized_keys
+PermitRootLogin no
+
+# Key-based authentication only — %h scopes to each user's home directory
+AuthorizedKeysFile %h/.ssh/authorized_keys
 StrictModes no
+
 ClientAliveInterval 60
 ClientAliveCountMax 5
+
+# Host keys — generated at runtime by entrypoint.sh (not baked into image)
 HostKey /etc/ssh/ssh_host_rsa_key
 HostKey /etc/ssh/ssh_host_ed25519_key
+
 LogLevel INFO
 ```
 
 ### Corrected Dockerfile (relevant sections)
 
 ```dockerfile
-# Generate SSH host keys at build time
-RUN ssh-keygen -A
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssh-server && \
+    rm -f /etc/ssh/ssh_host_* && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy SSH configuration
+# ... (user setup, sshd privilege separation directory) ...
+
 COPY sshd_config /etc/ssh/sshd_config
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 2222
 
@@ -164,6 +242,17 @@ ENTRYPOINT ["/entrypoint.sh"]
 #!/bin/bash
 set -e
 
+# Generate only the host key types referenced in sshd_config (RSA + Ed25519)
+# Skip if keys already exist and are not writable (e.g., read-only volume mount)
+for key_type in rsa ed25519; do
+    key_file="/etc/ssh/ssh_host_${key_type}_key"
+    if [ ! -f "$key_file" ]; then
+        ssh-keygen -t "$key_type" -f "$key_file" -N ""
+    elif [ ! -w "$key_file" ]; then
+        echo "Warning: $key_file exists but is not writable, skipping generation" >&2
+    fi
+done
+
 # Start sshd in the foreground as PID 1
 # exec ensures sshd receives signals directly for proper container shutdown
 exec /usr/sbin/sshd -D
@@ -172,5 +261,5 @@ exec /usr/sbin/sshd -D
 ## Related
 
 - `docs/solutions/tooling-decisions/hermes-sandbox-base-image-version.md` — base image version alignment decision
-- `docs/plans/2026-06-21-001-feat-hermes-sandbox-docker-image-plan.md` — the implementation plan that contained the original (incorrect) specifications
+- `docs/plans/2026-06-21-001-feat-hermes-sandbox-docker-image-plan.md` — the implementation plan that contained the original (incorrect) specifications; superseded by actual implementation
 - `docs/brainstorms/2026-06-21-docker-image-build-requirements.md` — requirements document with R6-R11 covering SSH configuration
