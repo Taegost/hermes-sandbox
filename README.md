@@ -23,6 +23,7 @@ docker run -d \
 
 > **Note:** The container starts as root (required for sshd privilege separation) and drops to user `hermes` (UID 10000:10000) after SSH authentication. Ensure the host-side `authorized_keys` file is readable by the container — owned by UID 10000 or world-readable (`chmod 644`).
 
+
 ### Connect
 
 ```bash
