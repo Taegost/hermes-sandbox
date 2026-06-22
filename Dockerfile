@@ -11,6 +11,7 @@ RUN apt-get update && \
         openssh-server \
         openssh-client \
         rsync && \
+    rm -f /etc/ssh/ssh_host_* && \
     rm -rf /var/lib/apt/lists/*
 
 # Remove base image user 'pn' to avoid confusion

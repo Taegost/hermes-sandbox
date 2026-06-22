@@ -112,11 +112,11 @@ The Service maps external port 22 to container port 2222, so agents connect on t
 
 ### SSH
 
-- **Port:** 2222 (non-standard to allow binding as non-root)
+- **Port:** 2222 (non-standard port to avoid conflicts with host sshd)
 - **Authentication:** Key-based only, no passwords
 - **Authorized keys:** Mounted at `/home/hermes/.ssh/authorized_keys`
 - **ControlMaster:** Client-side feature — configure in your `~/.ssh/config` (not in sshd_config). The server supports multiplexed connections transparently.
-- **Host keys:** Generated at build time. Mount custom host keys at `/etc/ssh/` for consistency across restarts.
+- **Host keys:** Generated at startup by entrypoint.sh. Mount custom host keys at `/etc/ssh/` to override and maintain consistency across restarts.
 
 ### User
 
