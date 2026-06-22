@@ -54,4 +54,4 @@ Hermes Agent needs a minimal, secure SSH backend sandbox with Python and Node.js
 - docker-cli — excluded; Hermes Agent does not run Docker commands inside the sandbox.
 - Network policies — Kubernetes-side concern, not part of the Docker image.
 - Monitoring and logging — not in scope for v1.
-- Multi-architecture builds — not in scope for v1.
+- Multi-architecture builds — optional; provided by the shared workflow at no extra configuration cost.
