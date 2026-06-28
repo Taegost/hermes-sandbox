@@ -14,6 +14,9 @@ RUN apt-get update && \
     rm -f /etc/ssh/ssh_host_* && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Claude Code CLI (pinned to latest as of 2026-06-28)
+RUN npm install -g @anthropic-ai/claude-code@2.1.195
+
 # Remove base image user 'pn' to avoid confusion
 RUN if id pn > /dev/null 2>&1; then userdel -r pn || true; fi
 
