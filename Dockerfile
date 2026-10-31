@@ -1,4 +1,4 @@
-FROM nikolaik/python-nodejs:python3.13-nodejs22@sha256:9e609c0e4a4b1b63cc62870418fb6f14a1f08d56ce56f6ba129bdedc1d79e5af
+FROM nikolaik/python-nodejs:python3.13-nodejs22@sha256:fae60eff1ab41e4bae4ef271f49cd2459edb13b1e61495b6d211ed2ca1e0d3f9
 
 # Install system packages required by Hermes Agent's shell-based workflow
 RUN apt-get update && \
@@ -14,8 +14,8 @@ RUN apt-get update && \
     rm -f /etc/ssh/ssh_host_* && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI (pinned to latest as of 2026-06-28)
-RUN npm install -g @anthropic-ai/claude-code@2.1.195
+# Install Claude Code CLI (latest at build time)
+RUN npm install -g @anthropic-ai/claude-code
 
 # Remove base image user 'pn' to avoid confusion
 RUN if id pn > /dev/null 2>&1; then userdel -r pn || true; fi
