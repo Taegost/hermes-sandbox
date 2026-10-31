@@ -12,6 +12,11 @@ AllowUsers hermes
 AuthorizedKeysFile %h/.ssh/authorized_keys
 StrictModes no
 
+# Hermes Agent forwards env vars (skill required_environment_variables,
+# terminal.env_passthrough) via OpenSSH SendEnv; sshd drops them unless accepted.
+# The sole client is the trusted Hermes host, so accept all.
+AcceptEnv *
+
 # Keepalive to prevent idle disconnects
 ClientAliveInterval 60
 ClientAliveCountMax 5
