@@ -32,9 +32,6 @@ RUN mkdir -p /home/hermes/.ssh && \
 # Create sshd privilege separation directory
 RUN mkdir -p /var/run/sshd
 
-# Copy SSH configuration
-COPY sshd_config /etc/ssh/sshd_config
-
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
